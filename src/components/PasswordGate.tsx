@@ -31,7 +31,7 @@ export default function PasswordGate({ onAuthenticated }: Props) {
   return (
     <div className="password-gate">
       <form className="password-form" onSubmit={handleSubmit}>
-        <h1>🌳 Gia Phả</h1>
+        <h1>🌳 Họ hàng của Nam</h1>
         <input
           type="password"
           placeholder="Nhập mật khẩu"

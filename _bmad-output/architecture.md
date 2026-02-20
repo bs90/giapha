@@ -23,6 +23,7 @@ CREATE TABLE members (
   memo TEXT,
   father_id UUID REFERENCES members(id) ON DELETE SET NULL,
   mother_id UUID REFERENCES members(id) ON DELETE SET NULL,
+  spouse_id  UUID REFERENCES members(id) ON DELETE SET NULL,
   position_x FLOAT NOT NULL DEFAULT 0,
   position_y FLOAT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
@@ -38,24 +39,31 @@ CREATE TABLE members (
 ## File Structure
 ```
 .env.local                       — VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY (gitignored)
-index.html                       — SPA entry, lang="vi"
+public/favicon.png               — Favicon 192x192
+index.html                       — SPA entry, lang="vi", favicon link
 vite.config.ts                   — base: '/giapha/'
 src/
   main.tsx                       — React root render
   App.tsx                        — Auth check (Supabase session) → PasswordGate | FamilyCanvas
-  App.css                        — All styles (password gate, member card, dialogs, highlight/dim)
+  App.css                        — All styles (password gate, member card, dialogs, highlight/dim,
+                                   heart node)
   lib/
     supabase.ts                  — createClient singleton
-    types.ts                     — MemberRow, MemberNodeData, AppEdge, PendingConnection
+    types.ts                     — MemberRow, MemberNodeData, HeartNodeData, AppEdge, PendingConnection
+    HighlightContext.ts          — React Context<Set<string>|null> cho hover highlight
+    findShortestPathNodes.ts     — BFS dual-distance thuật toán tìm đường ngắn nhất
   components/
     PasswordGate.tsx             — Password-only login (email hardcoded)
-    FamilyCanvas.tsx             — ReactFlow canvas + Panel + dialogs
-    MemberNode.tsx               — Custom node: photo, name, memo (inline edit), hover
+    FamilyCanvas.tsx             — ReactFlow canvas + Panel + dialogs + HighlightContext.Provider
+    MemberNode.tsx               — Custom node: photo, name, memo (inline edit)
                                    CSS classes: .dimmed, .highlighted, .special
-    RelationshipDialog.tsx       — Modal: chọn "Bố" hoặc "Mẹ"
+                                   Handles: top (child), bottom (parent)
+    HeartNode.tsx                — Virtual node: ❤️ giữa cặp vợ chồng, double-click để xoá
+                                   Handle: bottom (source tới con), không có edge nối vào từ spouse
+    RelationshipDialog.tsx       — Modal: chọn "Bố", "Mẹ", hoặc "Kết hôn"
   hooks/
     useMembers.ts                — Central hook: fetch, CRUD, auto-save, cascade delete,
-                                   hover/highlight, edge management
+                                   marriage (heart nodes, spouse sticking), edge management
 ```
 
 ## Component Flow
@@ -82,9 +90,16 @@ MemberNode components trên canvas
 ## Key Patterns
 - **Inline edit**: contentEditable + onBlur → optimistic local update + Supabase update
 - **Position save**: onNodeDragStop → debounce 300ms → Supabase update
-- **Cascade delete**: BFS tìm con cháu → supabase.delete().in('id', [...])
-- **Relationship**: onConnect → RelationshipDialog → update father_id/mother_id
+- **Cascade delete**: BFS tìm con cháu → supabase.delete().in('id', [...]) + clear spouse_id
+- **Relationship**: onConnect → RelationshipDialog → update father_id/mother_id hoặc spouse_id
 - **Edge delete**: onEdgeClick → confirm → set father_id/mother_id = null
+- **Marriage delete**: double-click ❤️ → confirm → clear spouse_id cả 2 phía
+- **Marriage**: spouse_id bidirectional (cả 2 trỏ vào nhau), sinh virtual heart node client-side
+- **Marriage visual**: không có edge nối spouse↔heart, chỉ có ❤️ float giữa 2 thẻ
+- **Spouse sticking**: onNodeDrag di chuyển spouse + heart cùng delta, onNodeDragStop persist cả 2
+- **Heart node**: virtual (không lưu DB), position = midpoint 2 spouse + offset (72, 42)
+- **Edge routing**: nếu cả bố mẹ đều kết hôn → con nối qua heart (tím #8b5cf6) thay vì 2 edge riêng
+- **Highlight performance**: HighlightContext + React.memo(), không rebuild nodes khi hover
 
 ## React Flow v12 Lưu ý
 - Dùng type `OnNodeDrag` (KHÔNG phải `NodeDragHandler` — không tồn tại trong v12)

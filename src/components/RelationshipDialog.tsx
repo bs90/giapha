@@ -1,5 +1,5 @@
 interface Props {
-  onSelect: (relation: 'father' | 'mother') => void;
+  onSelect: (relation: 'father' | 'mother' | 'spouse') => void;
   onCancel: () => void;
 }
 
@@ -14,6 +14,9 @@ export default function RelationshipDialog({ onSelect, onCancel }: Props) {
           </button>
           <button className="btn-mother" onClick={() => onSelect('mother')}>
             👩 Mẹ
+          </button>
+          <button className="btn-spouse" onClick={() => onSelect('spouse')}>
+            💕 Kết hôn
           </button>
         </div>
         <button className="btn-cancel" onClick={onCancel}>

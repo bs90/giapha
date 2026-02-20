@@ -1,7 +1,7 @@
-# Gia Phả - Tổng quan dự án
+# Họ hàng của Nam - Tổng quan dự án
 
 ## Mô tả
-Web quản lý gia phả (family tree) dạng canvas tương tác. Mỗi người là 1 thẻ card kéo thả trên canvas, nối quan hệ Bố/Mẹ bằng cách kéo đường nối.
+Web quản lý họ hàng (family tree) dạng canvas tương tác. Mỗi người là 1 thẻ card kéo thả trên canvas, nối quan hệ Bố/Mẹ/Kết hôn bằng cách kéo đường nối.
 
 ## Links
 - **Live**: https://bs90.github.io/giapha/
@@ -22,6 +22,8 @@ Web quản lý gia phả (family tree) dạng canvas tương tác. Mỗi ngườ
 - **UI**: dùng "Bố" (không dùng "Cha"), "Mẹ", tiếng Việt có dấu
 - **Special card**: ID `b9a96ad6-6391-4d8b-8571-3261286d451f` — viền vàng, không bao giờ bị dimmed
 - **Hover**: tìm các đường ngắn nhất từ thẻ hover → thẻ special, chỉ sáng đường đi
+- **Kết hôn**: 2 người kết hôn → thẻ đứng cạnh nhau, ❤️ ở giữa, con nối qua ❤️ thay vì nối riêng từng bố/mẹ
+- **Stick together**: kéo 1 spouse → spouse kia + ❤️ di chuyển theo
 - **Env**: `.env.local` chứa `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` (gitignored)
 - **Deploy**: không dùng GitHub Actions, tự build + push thủ công
 - **Test local trước khi deploy**: `npm run dev`

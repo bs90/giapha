@@ -356,3 +356,52 @@ body {
   background: #667eea;
   border: 2px solid white;
 }
+
+/* Heart Node */
+.heart-node {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border: 2px solid #fca5a5;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+  transition: opacity 0.3s, filter 0.3s;
+  cursor: pointer;
+}
+
+.heart-node.dimmed {
+  opacity: 0.2;
+  filter: grayscale(80%);
+}
+
+.heart-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.heart-node .react-flow__handle {
+  width: 6px;
+  height: 6px;
+  background: #ef4444;
+  min-width: 6px;
+  min-height: 6px;
+}
+
+/* Spouse button in dialog */
+.btn-spouse {
+  padding: 10px 24px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-spouse:hover {
+  background: #dc2626;
+}

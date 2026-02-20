@@ -1,26 +1,27 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { useState } from 'react';
+import { memo, useContext, useState } from 'react';
 import type { MemberNodeData } from '../lib/types';
+import { HighlightContext } from '../lib/HighlightContext';
 
 const SPECIAL_ID = 'b9a96ad6-6391-4d8b-8571-3261286d451f';
 
-export default function MemberNode({ id, data }: NodeProps<Node<MemberNodeData, 'member'>>) {
+function MemberNode({ id, data }: NodeProps<Node<MemberNodeData, 'member'>>) {
   const [showUrlInput, setShowUrlInput] = useState(false);
+  const pathIds = useContext(HighlightContext);
 
   const isSpecial = id === SPECIAL_ID;
+  const dimmed = pathIds ? !pathIds.has(id) : false;
+  const highlighted = pathIds ? pathIds.has(id) : false;
+
   const classNames = [
     'member-card',
-    data.dimmed ? 'dimmed' : '',
-    data.highlighted ? 'highlighted' : '',
+    dimmed ? 'dimmed' : '',
+    highlighted ? 'highlighted' : '',
     isSpecial ? 'special' : '',
   ].filter(Boolean).join(' ');
 
   return (
-    <div
-      className={classNames}
-      onMouseEnter={() => data.onHover(id)}
-      onMouseLeave={() => data.onHover(null)}
-    >
+    <div className={classNames}>
       <Handle type="target" position={Position.Top} id="child" />
 
       <button
@@ -84,3 +85,5 @@ export default function MemberNode({ id, data }: NodeProps<Node<MemberNodeData, 
     </div>
   );
 }
+
+export default memo(MemberNode);

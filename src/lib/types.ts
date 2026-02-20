@@ -7,6 +7,7 @@ export type MemberRow = {
   memo: string | null;
   father_id: string | null;
   mother_id: string | null;
+  spouse_id: string | null;
   position_x: number;
   position_y: number;
   created_at: string;
@@ -18,17 +19,22 @@ export type MemberNodeData = {
   memo: string | null;
   fatherId: string | null;
   motherId: string | null;
-  dimmed: boolean;
-  highlighted: boolean;
+  spouseId: string | null;
   onUpdateField: (id: string, field: string, value: string) => void;
   onDelete: (id: string) => void;
-  onHover: (id: string | null) => void;
 };
 
 export type MemberNodeType = Node<MemberNodeData, 'member'>;
 
+export type HeartNodeData = {
+  spouseA: string;
+  spouseB: string;
+};
+
+export type HeartNodeType = Node<HeartNodeData, 'heart'>;
+
 export type AppEdge = Edge & {
-  data?: { relation: 'father' | 'mother' };
+  data?: { relation: 'father' | 'mother' | 'spouse' | 'heart-child' };
 };
 
 export type PendingConnection = {

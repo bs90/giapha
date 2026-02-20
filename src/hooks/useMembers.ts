@@ -6,87 +6,18 @@ import {
   type OnNodeDrag,
 } from '@xyflow/react';
 import { supabase } from '../lib/supabase';
-import type { MemberRow, MemberNodeType, AppEdge, PendingConnection } from '../lib/types';
-
-const SPECIAL_ID = 'b9a96ad6-6391-4d8b-8571-3261286d451f';
-
-// Tìm tất cả node nằm trên CÁC ĐƯỜNG NGẮN NHẤT từ startId → targetId
-function findAllShortestPathNodes(startId: string, targetId: string, allMembers: MemberRow[]): Set<string> | null {
-  if (startId === targetId) return new Set([startId]);
-
-  // Build adjacency list (undirected: parent↔child)
-  const adj = new Map<string, string[]>();
-  for (const m of allMembers) {
-    if (!adj.has(m.id)) adj.set(m.id, []);
-    if (m.father_id) {
-      if (!adj.has(m.father_id)) adj.set(m.father_id, []);
-      adj.get(m.id)!.push(m.father_id);
-      adj.get(m.father_id)!.push(m.id);
-    }
-    if (m.mother_id) {
-      if (!adj.has(m.mother_id)) adj.set(m.mother_id, []);
-      adj.get(m.id)!.push(m.mother_id);
-      adj.get(m.mother_id)!.push(m.id);
-    }
-  }
-
-  // BFS from start to get distance of every node from start
-  const distFromStart = new Map<string, number>();
-  distFromStart.set(startId, 0);
-  let queue = [startId];
-  while (queue.length > 0) {
-    const next: string[] = [];
-    for (const current of queue) {
-      for (const neighbor of adj.get(current) || []) {
-        if (!distFromStart.has(neighbor)) {
-          distFromStart.set(neighbor, distFromStart.get(current)! + 1);
-          next.push(neighbor);
-        }
-      }
-    }
-    queue = next;
-  }
-
-  if (!distFromStart.has(targetId)) return null; // không nối được
-
-  // BFS from target to get distance of every node from target
-  const distFromTarget = new Map<string, number>();
-  distFromTarget.set(targetId, 0);
-  queue = [targetId];
-  while (queue.length > 0) {
-    const next: string[] = [];
-    for (const current of queue) {
-      for (const neighbor of adj.get(current) || []) {
-        if (!distFromTarget.has(neighbor)) {
-          distFromTarget.set(neighbor, distFromTarget.get(current)! + 1);
-          next.push(neighbor);
-        }
-      }
-    }
-    queue = next;
-  }
-
-  // Node nằm trên đường ngắn nhất nếu: dist(start,v) + dist(v,target) == dist(start,target)
-  const shortestDist = distFromStart.get(targetId)!;
-  const result = new Set<string>();
-  for (const m of allMembers) {
-    const ds = distFromStart.get(m.id);
-    const dt = distFromTarget.get(m.id);
-    if (ds !== undefined && dt !== undefined && ds + dt === shortestDist) {
-      result.add(m.id);
-    }
-  }
-
-  return result;
-}
+import type {
+  MemberRow,
+  MemberNodeType,
+  HeartNodeType,
+  AppEdge,
+  PendingConnection,
+} from '../lib/types';
 
 function memberToNode(
   member: MemberRow,
   onUpdateField: (id: string, field: string, value: string) => void,
-  onDelete: (id: string) => void,
-  onHover: (id: string | null) => void,
-  dimmed: boolean,
-  highlighted: boolean
+  onDelete: (id: string) => void
 ): MemberNodeType {
   return {
     id: member.id,
@@ -98,55 +29,109 @@ function memberToNode(
       memo: member.memo,
       fatherId: member.father_id,
       motherId: member.mother_id,
-      dimmed,
-      highlighted,
+      spouseId: member.spouse_id,
       onUpdateField,
       onDelete,
-      onHover,
     },
   };
 }
 
-function membersToEdges(members: MemberRow[], relatedIds: Set<string> | null): AppEdge[] {
-  const edges: AppEdge[] = [];
+function getMarriedPairs(members: MemberRow[]): Map<string, [string, string]> {
+  const pairs = new Map<string, [string, string]>();
   for (const m of members) {
-    if (m.father_id) {
-      const isRelated = !relatedIds || (relatedIds.has(m.father_id) && relatedIds.has(m.id));
+    if (!m.spouse_id) continue;
+    const sorted = [m.id, m.spouse_id].sort() as [string, string];
+    const key = sorted.join('_');
+    if (!pairs.has(key)) pairs.set(key, sorted);
+  }
+  return pairs;
+}
+
+function heartId(pairKey: string): string {
+  return `heart_${pairKey}`;
+}
+
+function generateHeartNodes(members: MemberRow[]): HeartNodeType[] {
+  const pairs = getMarriedPairs(members);
+  const hearts: HeartNodeType[] = [];
+  const memberMap = new Map(members.map((m) => [m.id, m]));
+
+  for (const [pairKey, [idA, idB]] of pairs) {
+    const a = memberMap.get(idA);
+    const b = memberMap.get(idB);
+    if (!a || !b) continue;
+
+    hearts.push({
+      id: heartId(pairKey),
+      type: 'heart',
+      position: {
+        x: (a.position_x + b.position_x) / 2 + 72,
+        y: (a.position_y + b.position_y) / 2 + 42,
+      },
+      draggable: false,
+      selectable: false,
+      data: { spouseA: idA, spouseB: idB },
+    });
+  }
+  return hearts;
+}
+
+function membersToEdges(members: MemberRow[]): AppEdge[] {
+  const edges: AppEdge[] = [];
+  const pairs = getMarriedPairs(members);
+
+  // Emit parent→child edges (via heart or direct)
+  for (const m of members) {
+    const bothParentsSet = m.father_id && m.mother_id;
+    const parentsMarriedKey = bothParentsSet
+      ? [m.father_id!, m.mother_id!].sort().join('_')
+      : null;
+    const parentsMarried = parentsMarriedKey && pairs.has(parentsMarriedKey);
+
+    if (parentsMarried) {
+      // Route through heart node
+      const hId = heartId(parentsMarriedKey!);
       edges.push({
-        id: `${m.father_id}-father-${m.id}`,
-        source: m.father_id,
+        id: `${hId}-child-${m.id}`,
+        source: hId,
         target: m.id,
-        sourceHandle: 'parent',
+        sourceHandle: 'heart-child',
         targetHandle: 'child',
-        label: 'Bố',
         type: 'smoothstep',
-        data: { relation: 'father' },
-        style: {
-          stroke: '#2563eb',
-          strokeWidth: 2,
-          opacity: relatedIds && !isRelated ? 0.15 : 1,
-        },
+        data: { relation: 'heart-child' },
+        style: { stroke: '#8b5cf6', strokeWidth: 2 },
       });
-    }
-    if (m.mother_id) {
-      const isRelated = !relatedIds || (relatedIds.has(m.mother_id) && relatedIds.has(m.id));
-      edges.push({
-        id: `${m.mother_id}-mother-${m.id}`,
-        source: m.mother_id,
-        target: m.id,
-        sourceHandle: 'parent',
-        targetHandle: 'child',
-        label: 'Mẹ',
-        type: 'smoothstep',
-        data: { relation: 'mother' },
-        style: {
-          stroke: '#db2777',
-          strokeWidth: 2,
-          opacity: relatedIds && !isRelated ? 0.15 : 1,
-        },
-      });
+    } else {
+      // Direct parent edges (existing behavior)
+      if (m.father_id) {
+        edges.push({
+          id: `${m.father_id}-father-${m.id}`,
+          source: m.father_id,
+          target: m.id,
+          sourceHandle: 'parent',
+          targetHandle: 'child',
+          label: 'Bố',
+          type: 'smoothstep',
+          data: { relation: 'father' },
+          style: { stroke: '#2563eb', strokeWidth: 2 },
+        });
+      }
+      if (m.mother_id) {
+        edges.push({
+          id: `${m.mother_id}-mother-${m.id}`,
+          source: m.mother_id,
+          target: m.id,
+          sourceHandle: 'parent',
+          targetHandle: 'child',
+          label: 'Mẹ',
+          type: 'smoothstep',
+          data: { relation: 'mother' },
+          style: { stroke: '#db2777', strokeWidth: 2 },
+        });
+      }
     }
   }
+
   return edges;
 }
 
@@ -167,11 +152,10 @@ function getDescendantIds(memberId: string, allMembers: MemberRow[]): string[] {
 
 export function useMembers() {
   const membersRef = useRef<MemberRow[]>([]);
-  const [nodes, setNodes, onNodesChange] = useNodesState<MemberNodeType>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<MemberNodeType | HeartNodeType>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<AppEdge>([]);
   const [pendingConnection, setPendingConnection] = useState<PendingConnection>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const positionTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const handleUpdateField = useCallback(async (id: string, field: string, value: string) => {
@@ -183,7 +167,7 @@ export function useMembers() {
       nds.map((node) => {
         if (node.id !== id) return node;
         const dataKey = field === 'photo_url' ? 'photoUrl' : field;
-        return { ...node, data: { ...node.data, [dataKey]: value } };
+        return { ...node, data: { ...node.data, [dataKey]: value } } as typeof node;
       })
     );
 
@@ -194,51 +178,40 @@ export function useMembers() {
     setDeleteTarget(id);
   }, []);
 
-  const handleHover = useCallback((id: string | null) => {
-    setHoveredId(id);
-  }, []);
+  const rebuildNodes = useCallback(
+    (members: MemberRow[]) => {
+      const memberNodes = members.map((m) => memberToNode(m, handleUpdateField, handleDelete));
+      const heartNodes = generateHeartNodes(members);
+      setNodes([...memberNodes, ...heartNodes]);
+      setEdges(membersToEdges(members));
+    },
+    [setNodes, setEdges, handleUpdateField, handleDelete]
+  );
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
     const idsToDelete = getDescendantIds(deleteTarget, membersRef.current);
 
+    // Clear spouse_id on spouses of members being deleted
+    for (const id of idsToDelete) {
+      const m = membersRef.current.find((mem) => mem.id === id);
+      if (m?.spouse_id && !idsToDelete.includes(m.spouse_id)) {
+        await supabase.from('members').update({ spouse_id: null }).eq('id', m.spouse_id);
+        membersRef.current = membersRef.current.map((mem) =>
+          mem.id === m.spouse_id ? { ...mem, spouse_id: null } : mem
+        );
+      }
+    }
+
     const { error } = await supabase.from('members').delete().in('id', idsToDelete);
     if (error) return;
 
     membersRef.current = membersRef.current.filter((m) => !idsToDelete.includes(m.id));
-    setNodes((nds) => nds.filter((n) => !idsToDelete.includes(n.id)));
-    setEdges((eds) =>
-      eds.filter((e) => !idsToDelete.includes(e.source) && !idsToDelete.includes(e.target))
-    );
+    rebuildNodes(membersRef.current);
     setDeleteTarget(null);
-  }, [deleteTarget, setNodes, setEdges]);
+  }, [deleteTarget, rebuildNodes]);
 
   const cancelDelete = useCallback(() => setDeleteTarget(null), []);
-
-  // Rebuild nodes and edges whenever hoveredId changes
-  useEffect(() => {
-    const members = membersRef.current;
-    if (members.length === 0) return;
-
-    const pathIds = hoveredId ? findAllShortestPathNodes(hoveredId, SPECIAL_ID, members) : null;
-
-    setNodes(
-      members.map((m) => {
-        const dimmed = pathIds ? !pathIds.has(m.id) : false;
-        const highlighted = pathIds ? pathIds.has(m.id) : false;
-        return memberToNode(m, handleUpdateField, handleDelete, handleHover, dimmed, highlighted);
-      })
-    );
-    setEdges(membersToEdges(members, pathIds));
-  }, [hoveredId, setNodes, setEdges, handleUpdateField, handleDelete, handleHover]);
-
-  const rebuildNodes = useCallback(
-    (members: MemberRow[]) => {
-      setNodes(members.map((m) => memberToNode(m, handleUpdateField, handleDelete, handleHover, false, false)));
-      setEdges(membersToEdges(members, null));
-    },
-    [setNodes, setEdges, handleUpdateField, handleDelete, handleHover]
-  );
 
   useEffect(() => {
     async function load() {
@@ -255,14 +228,87 @@ export function useMembers() {
     load();
   }, [rebuildNodes]);
 
+  const onNodeDrag: OnNodeDrag = useCallback(
+    (_event, node) => {
+      const member = membersRef.current.find((m) => m.id === node.id);
+      if (!member?.spouse_id) return;
+      const spouse = membersRef.current.find((m) => m.id === member.spouse_id);
+      if (!spouse) return;
+
+      // Move spouse by the same delta so they stick together
+      const dx = node.position.x - member.position_x;
+      const dy = node.position.y - member.position_y;
+      const newSpouseX = spouse.position_x + dx;
+      const newSpouseY = spouse.position_y + dy;
+
+      const pairKey = [node.id, member.spouse_id].sort().join('_');
+      const hId = heartId(pairKey);
+
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id === member.spouse_id) {
+            return { ...n, position: { x: newSpouseX, y: newSpouseY } } as typeof n;
+          }
+          if (n.id === hId) {
+            return {
+              ...n,
+              position: {
+                x: (node.position.x + newSpouseX) / 2 + 72,
+                y: (node.position.y + newSpouseY) / 2 + 42,
+              },
+            } as typeof n;
+          }
+          return n;
+        })
+      );
+    },
+    [setNodes]
+  );
+
   const onNodeDragStop: OnNodeDrag = useCallback(
     (_event, node) => {
       const id = node.id;
       const { x, y } = node.position;
 
+      const member = membersRef.current.find((m) => m.id === id);
+      const dx = x - (member?.position_x ?? x);
+      const dy = y - (member?.position_y ?? y);
+
+      // Update dragged node position
       membersRef.current = membersRef.current.map((m) =>
         m.id === id ? { ...m, position_x: x, position_y: y } : m
       );
+
+      // Also update spouse position if married
+      if (member?.spouse_id) {
+        const spouse = membersRef.current.find((m) => m.id === member.spouse_id);
+        if (spouse) {
+          const newSpouseX = spouse.position_x + dx;
+          const newSpouseY = spouse.position_y + dy;
+          membersRef.current = membersRef.current.map((m) =>
+            m.id === member.spouse_id
+              ? { ...m, position_x: newSpouseX, position_y: newSpouseY }
+              : m
+          );
+
+          // Persist spouse position (debounced)
+          const spouseTimeout = positionTimeouts.current.get(member.spouse_id);
+          if (spouseTimeout) clearTimeout(spouseTimeout);
+          positionTimeouts.current.set(
+            member.spouse_id,
+            setTimeout(async () => {
+              await supabase
+                .from('members')
+                .update({ position_x: newSpouseX, position_y: newSpouseY })
+                .eq('id', member.spouse_id!);
+              positionTimeouts.current.delete(member.spouse_id!);
+            }, 300)
+          );
+        }
+      }
+
+      // Rebuild edges to update left/right handle assignment
+      setEdges(membersToEdges(membersRef.current));
 
       const existing = positionTimeouts.current.get(id);
       if (existing) clearTimeout(existing);
@@ -275,7 +321,7 @@ export function useMembers() {
         }, 300)
       );
     },
-    []
+    [setEdges]
   );
 
   const handleConnect = useCallback((connection: Connection) => {
@@ -285,50 +331,108 @@ export function useMembers() {
   }, []);
 
   const confirmRelationship = useCallback(
-    async (relation: 'father' | 'mother') => {
+    async (relation: 'father' | 'mother' | 'spouse') => {
       if (!pendingConnection) return;
       const { sourceId, targetId } = pendingConnection;
-      const field = relation === 'father' ? 'father_id' : 'mother_id';
 
-      await supabase.from('members').update({ [field]: sourceId }).eq('id', targetId);
+      if (relation === 'spouse') {
+        // Auto-position: place target next to source
+        const source = membersRef.current.find((m) => m.id === sourceId);
+        if (source) {
+          const newX = source.position_x + 220; // 180px card + 40px gap
+          const newY = source.position_y;
+          await Promise.all([
+            supabase.from('members').update({ spouse_id: targetId }).eq('id', sourceId),
+            supabase
+              .from('members')
+              .update({ spouse_id: sourceId, position_x: newX, position_y: newY })
+              .eq('id', targetId),
+          ]);
+          membersRef.current = membersRef.current.map((m) => {
+            if (m.id === sourceId) return { ...m, spouse_id: targetId };
+            if (m.id === targetId)
+              return { ...m, spouse_id: sourceId, position_x: newX, position_y: newY };
+            return m;
+          });
+        } else {
+          await Promise.all([
+            supabase.from('members').update({ spouse_id: targetId }).eq('id', sourceId),
+            supabase.from('members').update({ spouse_id: sourceId }).eq('id', targetId),
+          ]);
+          membersRef.current = membersRef.current.map((m) => {
+            if (m.id === sourceId) return { ...m, spouse_id: targetId };
+            if (m.id === targetId) return { ...m, spouse_id: sourceId };
+            return m;
+          });
+        }
 
-      membersRef.current = membersRef.current.map((m) =>
-        m.id === targetId ? { ...m, [field]: sourceId } : m
-      );
+        rebuildNodes(membersRef.current);
+      } else {
+        const field = relation === 'father' ? 'father_id' : 'mother_id';
+        await supabase.from('members').update({ [field]: sourceId }).eq('id', targetId);
 
-      const newEdge: AppEdge = {
-        id: `${sourceId}-${relation}-${targetId}`,
-        source: sourceId,
-        target: targetId,
-        sourceHandle: 'parent',
-        targetHandle: 'child',
-        label: relation === 'father' ? 'Bố' : 'Mẹ',
-        type: 'smoothstep',
-        data: { relation },
-        style: { stroke: relation === 'father' ? '#2563eb' : '#db2777', strokeWidth: 2 },
-      };
-      setEdges((eds) => [...eds, newEdge]);
+        membersRef.current = membersRef.current.map((m) =>
+          m.id === targetId ? { ...m, [field]: sourceId } : m
+        );
+
+        // Rebuild to handle potential marriage-based edge routing
+        rebuildNodes(membersRef.current);
+      }
+
       setPendingConnection(null);
     },
-    [pendingConnection, setEdges]
+    [pendingConnection, rebuildNodes]
   );
 
   const cancelConnection = useCallback(() => setPendingConnection(null), []);
 
   const handleEdgeClick = useCallback(
     async (_event: React.MouseEvent, edge: AppEdge) => {
-      if (!window.confirm('Xoá quan hệ này?')) return;
-      const field = edge.data?.relation === 'father' ? 'father_id' : 'mother_id';
+      const relation = edge.data?.relation;
 
-      await supabase.from('members').update({ [field]: null }).eq('id', edge.target);
+      if (relation === 'heart-child') {
+        if (!window.confirm('Xoá quan hệ cha mẹ này?')) return;
 
-      membersRef.current = membersRef.current.map((m) =>
-        m.id === edge.target ? { ...m, [field]: null } : m
-      );
+        const childId = edge.target;
+        await supabase.from('members').update({ father_id: null, mother_id: null }).eq('id', childId);
 
-      setEdges((eds) => eds.filter((e) => e.id !== edge.id));
+        membersRef.current = membersRef.current.map((m) =>
+          m.id === childId ? { ...m, father_id: null, mother_id: null } : m
+        );
+
+        rebuildNodes(membersRef.current);
+      } else {
+        // Direct father/mother edge
+        if (!window.confirm('Xoá quan hệ này?')) return;
+        const field = relation === 'father' ? 'father_id' : 'mother_id';
+
+        await supabase.from('members').update({ [field]: null }).eq('id', edge.target);
+
+        membersRef.current = membersRef.current.map((m) =>
+          m.id === edge.target ? { ...m, [field]: null } : m
+        );
+
+        rebuildNodes(membersRef.current);
+      }
     },
-    [setEdges]
+    [rebuildNodes]
+  );
+
+  const handleDeleteMarriage = useCallback(
+    async (spouseAId: string, spouseBId: string) => {
+      await Promise.all([
+        supabase.from('members').update({ spouse_id: null }).eq('id', spouseAId),
+        supabase.from('members').update({ spouse_id: null }).eq('id', spouseBId),
+      ]);
+
+      membersRef.current = membersRef.current.map((m) => {
+        if (m.id === spouseAId || m.id === spouseBId) return { ...m, spouse_id: null };
+        return m;
+      });
+
+      rebuildNodes(membersRef.current);
+    },
+    [rebuildNodes]
   );
 
   const handleAddMember = useCallback(async () => {
@@ -344,9 +448,9 @@ export function useMembers() {
 
     if (data) {
       membersRef.current = [...membersRef.current, data];
-      setNodes((nds) => [...nds, memberToNode(data, handleUpdateField, handleDelete, handleHover, false, false)]);
+      setNodes((nds) => [...nds, memberToNode(data, handleUpdateField, handleDelete)]);
     }
-  }, [setNodes, handleUpdateField, handleDelete, handleHover]);
+  }, [setNodes, handleUpdateField, handleDelete]);
 
   const getDeleteInfo = useCallback(() => {
     if (!deleteTarget) return null;
@@ -358,12 +462,15 @@ export function useMembers() {
   return {
     nodes,
     edges,
+    membersRef,
     onNodesChange,
     onEdgesChange,
+    onNodeDrag,
     onNodeDragStop,
     handleConnect,
     handleAddMember,
     handleEdgeClick,
+    handleDeleteMarriage,
     pendingConnection,
     confirmRelationship,
     cancelConnection,
