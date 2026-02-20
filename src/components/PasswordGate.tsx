@@ -6,7 +6,6 @@ interface Props {
 }
 
 export default function PasswordGate({ onAuthenticated }: Props) {
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -17,12 +16,12 @@ export default function PasswordGate({ onAuthenticated }: Props) {
     setError('');
 
     const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
+      email: 'trongtb90@gmail.com',
       password,
     });
 
     if (authError) {
-      setError('Sai email hoặc mật khẩu. Vui lòng thử lại.');
+      setError('Sai mật khẩu. Vui lòng thử lại.');
     } else {
       onAuthenticated();
     }
@@ -34,17 +33,11 @@ export default function PasswordGate({ onAuthenticated }: Props) {
       <form className="password-form" onSubmit={handleSubmit}>
         <h1>🌳 Gia Phả</h1>
         <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoFocus
-        />
-        <input
           type="password"
-          placeholder="Mật khẩu"
+          placeholder="Nhập mật khẩu"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoFocus
         />
         <button type="submit" disabled={loading}>
           {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}

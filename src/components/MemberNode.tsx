@@ -2,11 +2,25 @@ import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { useState } from 'react';
 import type { MemberNodeData } from '../lib/types';
 
+const SPECIAL_ID = 'b9a96ad6-6391-4d8b-8571-3261286d451f';
+
 export default function MemberNode({ id, data }: NodeProps<Node<MemberNodeData, 'member'>>) {
   const [showUrlInput, setShowUrlInput] = useState(false);
 
+  const isSpecial = id === SPECIAL_ID;
+  const classNames = [
+    'member-card',
+    data.dimmed ? 'dimmed' : '',
+    data.highlighted ? 'highlighted' : '',
+    isSpecial ? 'special' : '',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className="member-card">
+    <div
+      className={classNames}
+      onMouseEnter={() => data.onHover(id)}
+      onMouseLeave={() => data.onHover(null)}
+    >
       <Handle type="target" position={Position.Top} id="child" />
 
       <button

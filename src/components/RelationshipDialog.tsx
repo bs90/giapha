@@ -10,7 +10,7 @@ export default function RelationshipDialog({ onSelect, onCancel }: Props) {
         <h3>Chọn quan hệ</h3>
         <div className="dialog-buttons">
           <button className="btn-father" onClick={() => onSelect('father')}>
-            👨 Cha
+            👨 Bố
           </button>
           <button className="btn-mother" onClick={() => onSelect('mother')}>
             👩 Mẹ

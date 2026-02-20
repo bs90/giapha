@@ -18,8 +18,11 @@ export type MemberNodeData = {
   memo: string | null;
   fatherId: string | null;
   motherId: string | null;
+  dimmed: boolean;
+  highlighted: boolean;
   onUpdateField: (id: string, field: string, value: string) => void;
   onDelete: (id: string) => void;
+  onHover: (id: string | null) => void;
 };
 
 export type MemberNodeType = Node<MemberNodeData, 'member'>;

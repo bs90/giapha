@@ -8,10 +8,85 @@ import {
 import { supabase } from '../lib/supabase';
 import type { MemberRow, MemberNodeType, AppEdge, PendingConnection } from '../lib/types';
 
+const SPECIAL_ID = 'b9a96ad6-6391-4d8b-8571-3261286d451f';
+
+// Tìm tất cả node nằm trên CÁC ĐƯỜNG NGẮN NHẤT từ startId → targetId
+function findAllShortestPathNodes(startId: string, targetId: string, allMembers: MemberRow[]): Set<string> | null {
+  if (startId === targetId) return new Set([startId]);
+
+  // Build adjacency list (undirected: parent↔child)
+  const adj = new Map<string, string[]>();
+  for (const m of allMembers) {
+    if (!adj.has(m.id)) adj.set(m.id, []);
+    if (m.father_id) {
+      if (!adj.has(m.father_id)) adj.set(m.father_id, []);
+      adj.get(m.id)!.push(m.father_id);
+      adj.get(m.father_id)!.push(m.id);
+    }
+    if (m.mother_id) {
+      if (!adj.has(m.mother_id)) adj.set(m.mother_id, []);
+      adj.get(m.id)!.push(m.mother_id);
+      adj.get(m.mother_id)!.push(m.id);
+    }
+  }
+
+  // BFS from start to get distance of every node from start
+  const distFromStart = new Map<string, number>();
+  distFromStart.set(startId, 0);
+  let queue = [startId];
+  while (queue.length > 0) {
+    const next: string[] = [];
+    for (const current of queue) {
+      for (const neighbor of adj.get(current) || []) {
+        if (!distFromStart.has(neighbor)) {
+          distFromStart.set(neighbor, distFromStart.get(current)! + 1);
+          next.push(neighbor);
+        }
+      }
+    }
+    queue = next;
+  }
+
+  if (!distFromStart.has(targetId)) return null; // không nối được
+
+  // BFS from target to get distance of every node from target
+  const distFromTarget = new Map<string, number>();
+  distFromTarget.set(targetId, 0);
+  queue = [targetId];
+  while (queue.length > 0) {
+    const next: string[] = [];
+    for (const current of queue) {
+      for (const neighbor of adj.get(current) || []) {
+        if (!distFromTarget.has(neighbor)) {
+          distFromTarget.set(neighbor, distFromTarget.get(current)! + 1);
+          next.push(neighbor);
+        }
+      }
+    }
+    queue = next;
+  }
+
+  // Node nằm trên đường ngắn nhất nếu: dist(start,v) + dist(v,target) == dist(start,target)
+  const shortestDist = distFromStart.get(targetId)!;
+  const result = new Set<string>();
+  for (const m of allMembers) {
+    const ds = distFromStart.get(m.id);
+    const dt = distFromTarget.get(m.id);
+    if (ds !== undefined && dt !== undefined && ds + dt === shortestDist) {
+      result.add(m.id);
+    }
+  }
+
+  return result;
+}
+
 function memberToNode(
   member: MemberRow,
   onUpdateField: (id: string, field: string, value: string) => void,
-  onDelete: (id: string) => void
+  onDelete: (id: string) => void,
+  onHover: (id: string | null) => void,
+  dimmed: boolean,
+  highlighted: boolean
 ): MemberNodeType {
   return {
     id: member.id,
@@ -23,29 +98,38 @@ function memberToNode(
       memo: member.memo,
       fatherId: member.father_id,
       motherId: member.mother_id,
+      dimmed,
+      highlighted,
       onUpdateField,
       onDelete,
+      onHover,
     },
   };
 }
 
-function membersToEdges(members: MemberRow[]): AppEdge[] {
+function membersToEdges(members: MemberRow[], relatedIds: Set<string> | null): AppEdge[] {
   const edges: AppEdge[] = [];
   for (const m of members) {
     if (m.father_id) {
+      const isRelated = !relatedIds || (relatedIds.has(m.father_id) && relatedIds.has(m.id));
       edges.push({
         id: `${m.father_id}-father-${m.id}`,
         source: m.father_id,
         target: m.id,
         sourceHandle: 'parent',
         targetHandle: 'child',
-        label: 'Cha',
+        label: 'Bố',
         type: 'smoothstep',
         data: { relation: 'father' },
-        style: { stroke: '#2563eb', strokeWidth: 2 },
+        style: {
+          stroke: '#2563eb',
+          strokeWidth: 2,
+          opacity: relatedIds && !isRelated ? 0.15 : 1,
+        },
       });
     }
     if (m.mother_id) {
+      const isRelated = !relatedIds || (relatedIds.has(m.mother_id) && relatedIds.has(m.id));
       edges.push({
         id: `${m.mother_id}-mother-${m.id}`,
         source: m.mother_id,
@@ -55,7 +139,11 @@ function membersToEdges(members: MemberRow[]): AppEdge[] {
         label: 'Mẹ',
         type: 'smoothstep',
         data: { relation: 'mother' },
-        style: { stroke: '#db2777', strokeWidth: 2 },
+        style: {
+          stroke: '#db2777',
+          strokeWidth: 2,
+          opacity: relatedIds && !isRelated ? 0.15 : 1,
+        },
       });
     }
   }
@@ -83,6 +171,7 @@ export function useMembers() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<AppEdge>([]);
   const [pendingConnection, setPendingConnection] = useState<PendingConnection>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const positionTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const handleUpdateField = useCallback(async (id: string, field: string, value: string) => {
@@ -105,6 +194,10 @@ export function useMembers() {
     setDeleteTarget(id);
   }, []);
 
+  const handleHover = useCallback((id: string | null) => {
+    setHoveredId(id);
+  }, []);
+
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
     const idsToDelete = getDescendantIds(deleteTarget, membersRef.current);
@@ -122,12 +215,29 @@ export function useMembers() {
 
   const cancelDelete = useCallback(() => setDeleteTarget(null), []);
 
+  // Rebuild nodes and edges whenever hoveredId changes
+  useEffect(() => {
+    const members = membersRef.current;
+    if (members.length === 0) return;
+
+    const pathIds = hoveredId ? findAllShortestPathNodes(hoveredId, SPECIAL_ID, members) : null;
+
+    setNodes(
+      members.map((m) => {
+        const dimmed = pathIds ? !pathIds.has(m.id) : false;
+        const highlighted = pathIds ? pathIds.has(m.id) : false;
+        return memberToNode(m, handleUpdateField, handleDelete, handleHover, dimmed, highlighted);
+      })
+    );
+    setEdges(membersToEdges(members, pathIds));
+  }, [hoveredId, setNodes, setEdges, handleUpdateField, handleDelete, handleHover]);
+
   const rebuildNodes = useCallback(
     (members: MemberRow[]) => {
-      setNodes(members.map((m) => memberToNode(m, handleUpdateField, handleDelete)));
-      setEdges(membersToEdges(members));
+      setNodes(members.map((m) => memberToNode(m, handleUpdateField, handleDelete, handleHover, false, false)));
+      setEdges(membersToEdges(members, null));
     },
-    [setNodes, setEdges, handleUpdateField, handleDelete]
+    [setNodes, setEdges, handleUpdateField, handleDelete, handleHover]
   );
 
   useEffect(() => {
@@ -192,7 +302,7 @@ export function useMembers() {
         target: targetId,
         sourceHandle: 'parent',
         targetHandle: 'child',
-        label: relation === 'father' ? 'Cha' : 'Mẹ',
+        label: relation === 'father' ? 'Bố' : 'Mẹ',
         type: 'smoothstep',
         data: { relation },
         style: { stroke: relation === 'father' ? '#2563eb' : '#db2777', strokeWidth: 2 },
@@ -234,9 +344,9 @@ export function useMembers() {
 
     if (data) {
       membersRef.current = [...membersRef.current, data];
-      setNodes((nds) => [...nds, memberToNode(data, handleUpdateField, handleDelete)]);
+      setNodes((nds) => [...nds, memberToNode(data, handleUpdateField, handleDelete, handleHover, false, false)]);
     }
-  }, [setNodes, handleUpdateField, handleDelete]);
+  }, [setNodes, handleUpdateField, handleDelete, handleHover]);
 
   const getDeleteInfo = useCallback(() => {
     if (!deleteTarget) return null;

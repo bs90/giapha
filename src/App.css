@@ -90,7 +90,27 @@ body {
   width: 180px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   position: relative;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, opacity 0.3s, filter 0.3s;
+}
+
+.member-card.dimmed {
+  opacity: 0.2;
+  filter: grayscale(80%);
+}
+
+.member-card.highlighted {
+  border-color: #667eea;
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+}
+
+.member-card.special {
+  border-color: #f59e0b;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.5);
+}
+
+.member-card.special.highlighted {
+  border-color: #f59e0b;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.7);
 }
 
 .member-card:hover {
